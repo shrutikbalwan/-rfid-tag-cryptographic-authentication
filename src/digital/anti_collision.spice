@@ -1,0 +1,62 @@
+# Anti-Collision Protocol Template
+
+## EPC Gen2 Backscatter Protocol
+
+### Operational Modes
+1. **Query** - Reader tags all compatible tags
+2. **Select** - Identify specific tag by EPC
+3. **Anti-Collision** - Slotted Aloha-based arbitration
+4. **Access** - Read/write data with password protection
+
+### Anti-Collision Algorithm
+1. Reader sends Query command with AFI/CRC
+2. Tags respond with RandomNumber (RN16) and Capability Information
+3. Reader sends Acknowledgement with Slotted-GEN
+4. Tags arbitrate using binary tree walk or dynamic mask
+5. Unique tag identified and selected
+
+### Distance-Bounding Features
+- Round-trip time (RTT) measurement via backscatter timing
+- Challenge-response with tight timing constraints
+- Distance estimation: d = c * RTT / 2
+- Protection against relay attacks
+
+### State Machine Flow
+```
+      +-----------+
+      |  IDLE     |
+      +-----------+
+         |
+         v
+      +-----------+    Query from reader
+      |  POWERUP  |------------------->
+      +-----------+              |
+         |                       v
+         |          +-----------+  Backscatter RN16
+         |          |  WAIT_RN  |<-----------+
+         |          +-----------+         |
+         |              |               |
+         v              v               v
+      +-----------+ +-----------+ +-----------+
+      |  ARBITRATE| |  RESPOND  | |  AUTHENT  |
+      +-----------+ +-----------+ +-----------+
+         |              |               |
+         +--------------+---------------+
+                       |
+                       v
+                  +-------+
+                  |  READY |
+                  +-------+
+```
+
+### Timing Constraints
+- RN16 response window: < 512 symbol times
+- Slot interval: ~86.4 μs at 13.56 MHz
+- Distance-bound window: < 2 ns (≈30cm max distance, d = c × RTT / 2)
+
+### Control Signals
+- `query_cmd` - initiate query
+- `rn16_valid` - random number received
+- `slot_arbiter` - binary tree controller
+- `dist_bound_en` - distance-bounding enable
+- `auth_success` - crypto authentication passed

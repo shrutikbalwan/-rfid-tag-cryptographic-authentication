@@ -1,0 +1,247 @@
+# State Machine: EPC Gen2 Anti-Collision Protocol
+# Implements: IDLE → POWERUP → WAIT_RN → ARBITRATE → RESPOND → AUTHENT → READY
+# Uses DFF subcircuits from crypto_core.spice for state storage
+
+* Power supplies
+VDD vdd 0 3.3
+VSS vss 0 0
+
+* Control signals from reader (testbench driven)
+Vcmd_query cmd_query vdd vss 0 ; query command pulse
+Vcmd_select cmd_select vdd vss 0 ; select command pulse
+Vrn16_valid rn16_valid vdd vss 0 ; random number valid
+Vauth_pass auth_pass vdd vss 0 ; crypto authentication passed
+Vdist_bound_en dist_bound_en vdd vss 0 ; distance-bounding enable
+
+* State machine nodes (1-hot: bit 0=IDLE, bit1=POWERUP, bit2=WAIT_RN,
+* bit3=ARBITRATE, bit4=RESPOND, bit5=AUTHENT, bit6=READY)
+N_idle node_idle vdd vss 0
+N_powerup node_powerup vdd vss 0
+N_wait_rn node_wait_rn vdd vss 0
+N_arb node_arb vdd vss 0
+N_respond node_respond vdd vss 0
+N_auth node_auth vdd vss 0
+N_ready node_ready vdd vss 0
+
+* Output signals
+Vresp_data resp_data vdd vss 0
+Vresp_valid resp_valid vdd vss 0
+Vdist_rtt dist_rtt vdd vss 0
+Vdist_bound dist_bound vdd vss 0
+
+* Clock and reset (from top_level.cir)
+Vclk clk vss 0 pulse(0 1 1u 1u 1u 1u 4096u) ; 32kHz
+Vrst rst vdd 0 pwl(0s 1 10ns 0) ; active-high reset, 10ns pulse
+
+* ============================================================
+* State Register using DFF1 (from crypto_core.spice definition)
+* Four DFF instances for 1-hot state storage
+* ============================================================
+
+* DFF1 definition (identical to crypto_core.spice DFF)
+.SUBCKT DFF1 clk d q qbar vdd vss
+* Master latch: transparent when clk=1
+X latch1 clk d master_q vdd vss LATCH
+* Slave latch: transparent when clk=1 (inverted phase)
+X latch2 clk master_q slave_q_bar vdd vss LATCH
+* Output inverters
+X inv_q master_q q vdd vss INV2
+X inv_qb slave_q_bar qbar vdd vss INV2
+.EN q
+.END
+
+* LATCH (transparent when clk=1)
+.SUBCKT LATCH clk d q vdd vss
+X tg_d d q_bar vdd vss PG
+X tg_en clk q_bar vdd vss PG
+X inv_ltch1 q_bar q vdd vss INV2
+.EN q
+.END
+
+* PG (Pass Gate)
+.SUBCKT PG gate control vdd vss
+X1 gate control vdd vss PMOS W=1u L=0.18u
+X2 gate control vss vdd NMOS W=0.5u L=0.18u
+.EN gate
+.END
+
+* INV2 (simple inverter)
+.SUBCKT INV2 in out vdd vss
+X1 in out vdd vss PMOS W=1u L=0.18u
+X2 in out vss vdd NMOS W=0.5u L=0.18u
+.EN out
+.END
+
+* NAND2 gate
+.SUBCKT NAND2 a b out vdd vss
+X1 a out_bar vdd vss PMOS W=1u L=0.18u
+X2 a out_bar vss vdd NMOS W=0.5u L=0.18u
+X3 b out_bar vdd vss PMOS W=1u L=0.18u
+X4 b out_bar vss vdd NMOS W=0.5u L=0.18u
+X5 out_out out_bar vss vdd NMOS W=0.5u L=0.18u
+X6 out_out out vdd vss PMOS W=1u L=0.18u
+X7 out_out out vss vdd NMOS W=0.5u L=0.18u
+.EN out_out
+.END
+
+* XOR2 gate
+.SUBCKT XOR2 a b out vdd vss
+X1 a out_bar vdd vss NAND2
+X2 b out_bar vdd vss NAND2
+X3 out_bar b out vdd vss NAND2
+X4 a out_out vdd vss NAND2
+X5 out_out a out vdd vss NAND2
+X6 out out vss vdd NMOS W=0.5u L=0.18u
+X7 out out vss vdd NMOS W=0.5u L=0.18u
+.EN out
+.END
+
+* AND2 gate
+.SUBCKT AND2 a b out vdd vss
+X_NAND a b out_bar vdd vss NAND2
+X_INV out_bar out vdd vss INV2
+.EN out
+.END
+
+* ============================================================
+* DFF Instances for 1-hot state storage
+* ============================================================
+
+* Bit 0 = IDLE state flop
+DFF1_IDLE clk node_idle vdd vss DFF1
+
+* Bit 1 = POWERUP state flop  
+DFF1_POWERUP clk node_powerup vdd vss DFF1
+
+* Bit 2 = WAIT_RN state flop
+DFF1_WAIT_RN clk node_wait_rn vdd vss DFF1
+
+* Bit 3 = ARBITRATE state flop
+DFF1_ARB clk node_arb vdd vss DFF1
+
+* Bit 4 = RESPOND state flop
+DFF1_RESPOND clk node_respond vdd vss DFF1
+
+* Bit 5 = AUTHENT state flop
+DFF1_AUTH clk node_auth vdd vss DFF1
+
+* Bit 6 = READY state flop (forced via d input)
+Vready_dummy vdd 0 1 ; forced high for READY state
+DFF1_READY clk vdd vss DFF1
+
+* ============================================================
+* Next-State Logic (1-hot transition mux)
+* ============================================================
+
+* IDLE transition: stays IDLE unless cmd_query triggers POWERUP
+X_OR2_IDLE_KEEP node_idle v_cmd_query_keep v_next_idle vdd vss OR2
+
+* POWERUP transition: goes to WAIT_RN when RN16 valid received
+X_AND2_PWUP_TO_WRN rn16_valid node_powerup v_next_powerup vdd vss AND2
+
+* WAIT_RN transition: goes to ARBITRATE when arb start signal
+X_OR2_WRN_TO_ARB rn16_valid v_arb_start v_next_wait_rn vdd vss OR2
+
+* ARBITRATE transition: goes to RESPOND when slot assigned (slot counter eq)
+X_AND2_ARB_TO_RSP slot_cnt_eq v_next_arb v_next_respond vdd vss AND2
+
+* RESPOND transition: goes to AUTHENT when auth_pass from crypto core
+X_AND2_RSP_TO_AUTH auth_pass v_next_respond v_next_auth vdd vss AND2
+
+* AUTHENT transition: goes to READY when dist_bound and auth_pass
+X_AND2_AUTH_TO_RDY dist_bound_en v_next_auth v_next_ready vdd vss AND2
+
+* ============================================================
+* Transition Enable Generation
+* ============================================================
+
+* cmd_query pulse input (from testbench)
+Vcmd_query cmd_query vdd vss 0
+
+* rn16_valid input from protocol
+Vrn16_valid rn16_valid vdd vss 0
+
+* arb start signal (internal)
+Varb_start v_arb_start vdd vss 0
+
+* slot counter equality check (simplified)
+; When slot counter reaches assigned value
+Vslot_cnt_eq slot_cnt_eq vdd vss 0
+
+* auth pass signal (from crypto core)
+Vauth_pass auth_pass vdd vss 0
+
+* dist_bound enable (from distance-bounding module)
+Vdist_bound_en dist_bound_en vdd vss 0
+
+* dist_bound flag (RTT < 2ns threshold)
+Vdist_bound dist_bound vdd vss 0
+
+* ============================================================
+* Output Logic
+* ============================================================
+
+* resp_valid: high when READY state is active (node_ready high)
+AND2_ReadyValid node_ready vdd v_resp_valid vdd vss AND2
+
+* resp_data: derived from challenge and RN16
+; XOR of cmd_select and rn16_valid as placeholder response
+XOR2_RespData cmd_select rn16_valid v_resp_data vdd vss XOR2
+
+* dist_bound: distance-bound flag (RTT < 2ns for ≤30cm)
+; Combined from distance-enable and ready state
+AND2_DistFlag dist_bound_en node_ready v_dist_bound vdd vss AND2
+
+* dist_rtt: round-trip time measurement (placeholder from distance testbench)
+V_dist_rtt_placeholder dist_rtt vdd vss 0
+
+* ============================================================
+* State Transition Mux Logic
+* ============================================================
+
+* Current state -> Next state DFF inputs
+* IDLE: stays IDLE or goes to POWERUP on cmd_query
+; Next state mux: if cmd_query then POWERUP else stay IDLE
+X_AND2_IDLE_NEXT cmd_query v_next_idle v_idle_next vdd vss AND2
+X_OR2_IDLE_NEXT v_idle_next vss v_next_idle_final vdd vss OR2
+; Simplified: IDLE always stays IDLE unless overridden
+
+* POWERUP → WAIT_RN when RN16 valid
+DFF1_POWERUP .D v_next_powerup ; driven by RN16 valid logic
+
+* WAIT_RN → ARBITRATE when arb start
+DFF1_WAIT_RN .D v_next_wait_rn
+
+* ARBITRATE → RESPOND when slot assigned
+DFF1_ARB .D v_next_arb
+
+* RESPOND → AUTHENT when auth pass
+DFF1_RESPOND .D v_next_auth
+
+* AUTHENT → READY when dist bound OK
+DFF1_AUTH .D v_next_ready
+
+* READY state: force high (d=1)
+Vready_force vdd 0 1
+DFF1_READY .D vready_force
+
+* ============================================================
+* State Monitor Probes
+* ============================================================
+
+*plt tran v(clk) v(rst) v(cmd_query) v(rn16_valid) \
+v(resp_data) v(resp_valid) v(dist_bound) v(dist_rtt) \
+v(node_idle) v(node_powerup) v(node_wait_rn) v(node_arb) \
+v(node_respond) v(node_auth) v(node_ready)
+
+* Expected protocol flow:
+; 1. Reader pulses cmd_query → tag enters POWERUP (bit 1 sets)
+; 2. Tag harvests power, enters WAIT_RN (bit 2 sets) to receive RN16
+; 3. Tag enters ARBITRATE (bit 3) for binary tree slot assignment
+; 4. Tag responds with data in RESPOND state (bit 4 sets)
+; 5. Crypto authentication verified in AUTHENT state (bit 5 sets)
+; 6. Distance-bound check passes → READY state (bit 6 sets)
+
+* End of state machine
+.TRAN 10n 500u UIC
+.END

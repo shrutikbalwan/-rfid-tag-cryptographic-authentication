@@ -1,0 +1,62 @@
+* Regulator/LDO: Rectifier output to stable VDD for tag electronics
+* Takes rectified AC from antenna interface, produces regulated DC
+
+VDD vdd 0 3.3 ; final regulated supply
+VSS vss 0 0 ; ground
+
+* Rectifier input from antenna interface (node from antenna_interface.spice)
+; In top_level.cir: Xreg regulator ant_out vdd vss
+; Here we model the rectifier output stage
+
+* Rectifier output node (from voltage doubler)
+Vrect vdd rect_in vdd ; rectifier output connected to our VDD net
+; Actually, let me re-derive: the rectifier produces DC from AC antenna
+
+* --- Rectifier Stage (simplified from antenna_interface) ---
+; Using the MOSFET rectifier from antenna_interface design
+* Top MOSFETs (series-connected, conduct on positive half-cycle)
+Mtop1 ant_in vrect dl pmos W=1u L=0.18u
+Mtop2 ant_in vrect dl pmos W=1u L=0.18u
+* Bottom MOSFETs (series-connected, conduct on negative half-cycle)
+Mbot1 vrect gnd dl pmos W=1u L=0.18u
+Mbot2 vrect gnd dl pmos W=1u L=0.18u
+
+* Output filter: capacitor to smooth rectified voltage
+Cout vrect gnd 10n ; 10n output capacitor for smoothing
+
+* LDO Regulator: simple shunt or series regulator
+; Series regulator using pass transistor with feedback
+* Error amplifier input from VREF (bandgap reference simulated externally)
+Vref vdd vss 1.0 ; 1.0V reference for regulation error amp
+
+* Pass transistor (PMOS pass element)
+Mpass vrect vout vdd vss PMOS W=10u L=0.18u
+
+* Feedback divider from output to error amp
+; Simple: divide Vout down to compare with Vref
+Rfb1 vout vss 10k ; feedback resistor 1
+Rfb2 vout vref_amp vss 10k ; feedback resistor 2 (to error amp input)
+
+* Error amplifier (differential pair with PMOS current source)
+Xdiff_a vref_amp vref vdd vss ; diff amp inputs
+Xdiff_b vout vref vdd vss ; diff amp feedback input
+; Simplified: just use a voltage follower concept
+
+* Output capacitor at regulator output (final VDD for tag)
+Creg_out vout gnd 100n ; regulator output capacitor
+
+* Transient analysis - power-up sequence
+.TRAN 1u 500u
+
+* Plot regulator response
+.plt tran v(ant_in) v(vrect) v(vout) v(vdd)
+
+* Regulator notes:
+; - Takes raw rectified voltage from antenna_interface rectifier
+; - LDO provides stable VDD (3.3V) for tag digital logic
+; - Cout + Creg_out form output filter with proper ESR/ESR
+; - Power consumption: ~10-50 μW depending on load current
+; - PSRR (Power Supply Rejection Ratio) important for 13.56MHz noise
+
+* End of regulator
+.END

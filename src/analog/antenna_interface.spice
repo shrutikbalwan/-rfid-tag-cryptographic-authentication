@@ -1,0 +1,46 @@
+# Antenna Interface Template
+
+## Spiral Antenna Design (13.56MHz)
+
+### Parameters
+- Resonant frequency: 13.56 MHz
+- Inductance (L): ~1-5 μH (process-dependent)
+- Capacitance (C): tuning capacitor for resonance
+- Quality factor (Q): >30 target
+- Input impedance: 50Ω match to reader
+
+### Circuit Sub-blocks
+1. **Spiral Antenna** - planar coil, parasitic capacitance
+2. **Matching Network** - L-network or π-network for 50Ω transformation
+3. **Rectifier** - voltage doubler or full-wave rectifier
+4. **LDO Regulator** - stable VDD for tag electronics
+5. **Coupling Capacitor** - DC block to reader, AC pass to antenna
+
+### Layout Considerations
+- Spiral winding direction for optimal EM fields
+- Substrate shielding to reduce losses
+- Pad ring for wirebond connections
+- Keep-out zones for other metal layers
+
+### SPICE Netlist Template
+```
+* Antenna Interface - 13.56MHz
+Vant inant gnd ac 1.0
+* Spiral antenna modeled as LC tank
+Lant ant mid 1uH
+Cmid gnd 150pF ; tuned for 13.56MHz resonance with Lant=1uH
+* Matching network
+Lmatch mid match 50n
+Cmatch match gnd 1pF
+* Rectifier (voltage doubler)
+* Top MOSFETs (series-connected, conduct on positive half-cycle)
+Mtop1 match vrect dl pmos W=1u L=0.18u
+Mtop2 match vrect dl pmos W=1u L=0.18u
+* Bottom MOSFETs (series-connected, conduct on negative half-cycle)
+Mbot1 vrect gnd dl pmos W=1u L=0.18u
+Mbot2 vrect gnd dl pmos W=1u L=0.18u
+* LDO output
+Cout vrect gnd 10n
+*
+.AC DEC 10 1Meg 10Gig
+.END

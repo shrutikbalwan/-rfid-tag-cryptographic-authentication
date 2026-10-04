@@ -1,0 +1,63 @@
+# Top-Level RFID Tag Circuit
+
+* Top-level instantiation of all blocks
+* Process: 180nm CMOS
+* Supply: VDD=3.3V, VSS=0V
+
+VDD vdd 0 3.3
+VSS vss 0 0
+
+* Power-up reset
+Vrst vdd 0 pwl(0s 0 10ns 1)
+Rrst vdd 0 1k
+
+* 13.56 MHz carrier source (reader)
+Vcarrier ant_in gnd ac 1 0
+*.ac DEC 10 1Meg 10Gig
+
+* Antenna Interface
+Xant_int antenna_interface ant_in ant_out vdd vss
+
+* RF Front-End: 13.56MHz backscatter coupler, sub-carrier, ASK demodulation
+Xrf_front rf_front_end ant_in ant_out vdd vss
+
+* LDO Regulator (from rectifier output)
+Xreg regulator ant_out vdd vss
+
+* Crypto Core (LFSR lightweight - parameterizable)
+Xcrypto crypto_core vdd vss rst_n
+
+* State Machine & Anti-Collision
+Xstate state_machine vdd vss rst_n \
+    cmd_query=cmd_query cmd_select=cmd_select \
+    resp_data=resp_data resp_valid=resp_valid \
+    auth_pass=auth_pass dist_bound=dist_bound
+
+* Backscatter Reader Link
+Xreader reader_link vdd vss ant_in ant_out \
+    resp_data=resp_data resp_valid=resp_valid \
+    auth_pass=auth_pass
+
+* Reader link subcircuit: backscatter modulation and reader communication
+.SUBCKT reader_link vdd vss ant_in ant_out resp_data resp_valid auth_pass
+* Placeholder: antenna input monitoring
+Vant_mon ant_in vdd 0.5
+* resp_data: derived from ant_out
+XOR2_resp ant_out resp_data vdd vss XOR2
+* resp_valid: high when signal present
+Vresp_valid_sel resp_valid vdd vss 0
+* auth_pass: tied low for placeholder
+Vauth_passtie auth_pass vdd vss 0
+.EN resp_data resp_valid auth_pass
+.END
+
+* Low-Power Clock
+Vclk clk_32k 0 dc 0 pulse(0 1u 1u 0 1u 1u 256u)
+
+Rload vdd vss 10k
+
+* Monitoring
+* Power current monitor
+Ivdd vdd 0 0.001
+
+.END

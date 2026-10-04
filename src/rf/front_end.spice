@@ -1,0 +1,51 @@
+# RF Front-End: 13.56MHz Backscatter Coupler & Demodulation
+# Implements: backscatter coupler, sub-carrier generation, ASK demodulation
+
+VDD vdd 0 3.3
+VSS vss 0 0
+
+* 13.56 MHz continuous wave carrier from reader
+Vcarrier ant_in gnd ac 1 SIN(0 1 13.56M 0 0)
+
+* LC Tank antenna resonance (from antenna_interface)
+Lant ant_mid gnd 2.2uH
+C_tank ant_mid gnd 62pF ; resonant ~13.56MHz with Lant=2.2uH
+
+* Matching network (L-section for 50Ω transformation)
+L_match ant_mid match_node 50n
+C_match match_node gnd 100pF
+
+* Backscatter Coupler - allows reader to transmit while tag backscatters
+; Coupler extracts forward wave and provides reflected wave for backscatter
+X_coupler ant_in ant_out match_node gnd backscatter_coupler
+
+* Sub-carrier generation for backscatter modulation (19.6kHz ~ 1/276 of carrier)
+; PSK keying for data transmission
+V_subcarrier sub_car gnd dc 0 pulse(0 1 1u 1u 1u 1u 1024u) ; ~976 Hz, adjust for 19.6kHz
+
+* ASK Demodulator - envelope detector for received data
+C_det rect_node gnd 1n ; detector capacitor
+R_det rect_node gnd 1k ; detector resistor
+
+* Phase-Locked Loop reference for carrier recovery
+; Simple PLL reference - track 13.56MHz carrier phase
+V_pll_ref pll_ref gnd dc 1.65 ; mid-supply reference for carrier sync
+
+* Received signal monitoring
+V_rx vdd ant_out ac 0 ; differential receive output
+
+* Power monitoring from rectifier
+V_rect ant_out gnd 0 ; rectified DC for power budget
+
+* Transient analysis - power-up and carrier steady state
+.TRAN 1u 1m UIC
+
+* AC analysis for frequency response
+.AC DEC 10 1Meg 10Gig
+
+* Plot key signals
+.plt ac v(ant_in) v(ant_out) v(sub_car) v(rect_node) v(rx)
+.plt tran v(vdd) v(rect_node) v(rx) v(sub_car)
+
+; End of RF front-end
+.END
